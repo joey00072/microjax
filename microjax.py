@@ -231,29 +231,30 @@ def deriv(function):
 
 
 # =========================================================
-print("## Forward Mode Automatic Differentiation (JVP) ##")
+if __name__ == "__main__":
+    print("## Forward Mode Automatic Differentiation (JVP) ##")
 
 
-def func(x):
-    return 3 * x * x * x + 2 * x * x + 2 * x
+    def func(x):
+        return 3 * x * x * x + 2 * x * x + 2 * x
 
 
-x = 3.14
+    x = 3.14
 
-f = func
-print(f"f(x) = {f(x)}")
+    f = func
+    print(f"f(x) = {f(x)}")
 
-f = deriv(func)
-print(f"f'(x) = {f(x)}")
+    f = deriv(func)
+    print(f"f'(x) = {f(x)}")
 
-f = deriv(deriv(func))
-print(f"f''(x) = {f(x)}")
+    f = deriv(deriv(func))
+    print(f"f''(x) = {f(x)}")
 
-f = deriv(deriv(deriv(func)))
-print(f"f'''(x) = {f(x)}")
+    f = deriv(deriv(deriv(func)))
+    print(f"f'''(x) = {f(x)}")
 
 
-print("-" * 100)
+    print("-" * 100)
 
 
 # =========================================================
@@ -404,28 +405,28 @@ def func(x):
     # return x*x
     return 3 * x * x * x + 2 * x * x + 2 * x
 
+if __name__ == "__main__":
+    x = 3.14
 
-x = 3.14
+    print("## Reverse Mode Automatic Differentiation (VJP) ##\n")
+    f = func
+    print(f"f(x) = {f(x)}")
 
-print("## Reverse Mode Automatic Differentiation (VJP) ##\n")
-f = func
-print(f"f(x) = {f(x)}")
+    f = grad(func)
+    print(f"f'(x) = {f(x)}")
 
-f = grad(func)
-print(f"f'(x) = {f(x)}")
+    f = grad(grad(func))
+    print(f"f''(x) = {f(x)}")
 
-f = grad(grad(func))
-print(f"f''(x) = {f(x)}")
+    f = grad(grad(grad(func)))
+    print(f"f'''(x) = {f(x)}")
 
-f = grad(grad(grad(func)))
-print(f"f'''(x) = {f(x)}")
-
-print("-" * 100,"\n")
+    print("-" * 100,"\n")
 
 
-print("Composition of Forward and Backward\n")
-print(f"Forward on Backward {grad(deriv(func))(x)}")
-print(f"Backward on Forward {deriv(grad(func))(x)}")
+    print("Composition of Forward and Backward\n")
+    print(f"Forward on Backward {grad(deriv(func))(x)}")
+    print(f"Backward on Forward {deriv(grad(func))(x)}")
 
 
 #### TODO: Pytree
