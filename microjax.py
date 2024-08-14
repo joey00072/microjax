@@ -1,12 +1,25 @@
 from __future__ import annotations
 
+import pytree
+import numbers
+import math
+
+
 from contextlib import contextmanager
 from typing import Any, Callable
+
+# works with numpy but breaks broadcasting
+# for non broadcasting import numpy and comment this
+np = math
 
 
 class OPS:
     ADD = "add"
     MUL = "mul"
+    NEG = "neg"
+    RECIP = "recip"
+    EXP = "exp"
+    SIN = "sin"
 
 
 def add(*args):
@@ -17,11 +30,45 @@ def mul(*args):
     return bind_single(OPS.MUL, *args)
 
 
+def neg(x):
+    return bind_single(OPS.NEG, x)
+
+
+def recip(x):
+    return bind_single(OPS.RECIP, x)
+
+
+def exp(x):
+    return bind_single(OPS.EXP, x)
+
+
+def sin(x):
+    return bind_single(OPS.SIN, x)
+
+
+def cos(x):
+    return sin(x + np.pi / 2)
+
+
+def sigmoid(x):
+    return 1 / (1 + exp(-x))
+
+
+def tanh(x):
+    return 2 * sigmoid(2 * x) - 1
+
+
+def silu(x):
+    return x * sigmoid(x)
+
+
+# </basic interpreter>
 class Interpreter:
     def __init__(self, level: int = 0, *args, **kwargs):
         self.level = level
 
     def process_primitive(self, prim, boxes, params):
+        "in this function, either you process primitives or you unbox and send to lower level interpreter"
         raise NotImplementedError
 
 
@@ -73,12 +120,43 @@ class Box:
     def __rmul__(self, other):
         return mul(other, self)
 
+    def __neg__(self):
+        return neg(self)
+
+    def __sub__(self, other):
+        return add(self, neg(other))
+
+    def __rsub__(self, other):
+        return add(other, neg(self))
+
+    def __truediv__(self, other):
+        return mul(self, recip(other))
+
+    def __rtruediv__(self, other):
+        return mul(other, recip(self))
+
+    def __iadd__(self, other):
+        return add(self, other)
+
+    def __imul__(self, other):
+        return mul(self, other)
+
+    def __isub__(self, other):
+        return add(self, neg(other))
+
+    def __itruediv__(self, other):
+        return mul(self, recip(other))
+
 
 class EvalRules:
     def __init__(self):
         self.rules = {
             OPS.ADD: self.add,
             OPS.MUL: self.mul,
+            OPS.NEG: self.neg,
+            OPS.RECIP: self.recip,
+            OPS.EXP: self.exp,
+            OPS.SIN: self.sin,
         }
 
     def __getitem__(self, op):
@@ -92,11 +170,30 @@ class EvalRules:
         x, y = primals
         return [x * y]
 
+    def neg(self, primals, *args):
+        (x,) = primals
+        return [-x]
+
+    def recip(self, primals, *args):
+        (x,) = primals
+        return [1 / x]
+
+    def exp(self, primals, *args):
+        (x,) = primals
+        return [np.exp(x)]
+
+    def sin(self, primals, *args):
+        (x,) = primals
+        return [np.sin(x)]
+
 
 class EvalInterpreter(Interpreter):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.rules = EvalRules()
+
+    def pure(self, val):
+        return val
 
     def process_primitive(self, prim, boxes, params):
         return self.rules[prim](boxes, *params)
@@ -150,6 +247,9 @@ def bind_single(prim, *args, **params):
 push_interpreter(EvalInterpreter())
 
 
+# </basic interpreter>
+###
+
 # =========================================================
 # Jacobian Vector Product (JVP)
 # forward mode Automatic Differentiation
@@ -176,6 +276,10 @@ class JVPRules:
         self.rules = {
             OPS.ADD: self.add,
             OPS.MUL: self.mul,
+            OPS.NEG: self.neg,
+            OPS.RECIP: self.recip,
+            OPS.EXP: self.exp,
+            OPS.SIN: self.sin,
         }
 
     # dont forget to return tuple(primals),tuple(tangents)
@@ -191,6 +295,28 @@ class JVPRules:
     def mul(primals, tangents):
         (x, y), (x_dot, y_dot) = primals, tangents
         return (x * y,), (x_dot * y + x * y_dot,)
+
+    @staticmethod
+    def neg(primals, tangents):
+        (x,), (x_dot,) = primals, tangents
+        return (-x,), (-x_dot,)
+
+    @staticmethod
+    def recip(primals, tangents):
+        (x,), (x_dot,) = primals, tangents
+        y = 1 / x
+        return (y,), (-y * y * x_dot,)
+
+    @staticmethod
+    def exp(primals, tangents):
+        (x,), (x_dot,) = primals, tangents
+        y = exp(x)
+        return (y,), (y * x_dot,)
+
+    @staticmethod
+    def sin(primals, tangents):
+        (x,), (x_dot,) = primals, tangents
+        return (sin(x),), (cos(x) * x_dot,)
 
 
 class JVPInterpreter(Interpreter):
@@ -234,10 +360,8 @@ def deriv(function):
 if __name__ == "__main__":
     print("## Forward Mode Automatic Differentiation (JVP) ##")
 
-
     def func(x):
         return 3 * x * x * x + 2 * x * x + 2 * x
-
 
     x = 3.14
 
@@ -252,7 +376,6 @@ if __name__ == "__main__":
 
     f = deriv(deriv(deriv(func)))
     print(f"f'''(x) = {f(x)}")
-
 
     print("-" * 100)
 
@@ -276,11 +399,16 @@ class Node:
 def get_leaf_nodes() -> Node:
     return Node(None, [])
 
+
 class VJPRules:
     def __init__(self):
         self.rules = {
             OPS.ADD: self.add,
             OPS.MUL: self.mul,
+            OPS.NEG: self.neg,
+            OPS.RECIP: self.recip,
+            OPS.EXP: self.exp,
+            OPS.SIN: self.sin,
         }
         """
         Jax define one of vjp or jvp rules
@@ -307,6 +435,50 @@ class VJPRules:
 
         return (x * y,), vjp_mul
 
+    def tanh(self, primals):
+        (x,) = primals
+        y = tanh(x)
+
+        def vjp_tanh(grad):
+            return ((1 - y * y) * grad,)
+
+        return (y,), vjp_tanh
+
+    def neg(self, primals):
+        (x,) = primals
+
+        def vjp_neg(grad):
+            return (-grad,)
+
+        return (-x,), vjp_neg
+
+    def recip(self, primals):
+        (x,) = primals
+        y = 1 / x
+
+        def vjp_recip(grad):
+            return (-y * y * grad,)
+
+        return (y,), vjp_recip
+
+    def exp(self, primals):
+        (x,) = primals
+        y = exp(x)
+
+        def vjp_exp(grad):
+            return (y * grad,)
+
+        return (y,), vjp_exp
+
+    def sin(self, primals):
+        (x,) = primals
+        y = sin(x)
+
+        def vjp_sin(grad):
+            return (cos(x) * grad,)
+
+        return (y,), vjp_sin
+
 
 class VJPInterpreter(Interpreter):
     def __init__(self, *args, **kwargs):
@@ -326,7 +498,8 @@ class VJPInterpreter(Interpreter):
         for p, n in zip(primals_out, nodes_out):
             result.append(VJPBox(self, p, n))
         return result
-    
+
+
 class VJPBox(Box):
     def __init__(self, interpreter: VJPInterpreter, primal, node: Node) -> None:
         super().__init__()
@@ -343,10 +516,11 @@ class VJPBox(Box):
     def aval(self):
         return self.primal.aval
 
-def vjp(f, *args):
+
+def vjp_simple(func, *args):
     with interpreter_context(VJPInterpreter) as iptr:
         box_in = [VJPBox(iptr, x, get_leaf_nodes()) for x in args]
-        out = f(*box_in)
+        out = func(*box_in)
         box_out = full_raise(iptr, out)
         in_nodes = [box.node for box in box_in]
         out_node = box_out.node
@@ -356,6 +530,7 @@ def vjp(f, *args):
             return backward_pass(in_nodes, out_node, grad)
 
     return primal_out, func_vjp
+
 
 def backward_pass(in_nodes, out_node, gradient):
     node_map = {id(out_node): gradient}
@@ -371,7 +546,6 @@ def backward_pass(in_nodes, out_node, gradient):
             node_map[parent_id] = add_grads(node_map.get(parent_id), input_grad)
 
     return [node_map.get(id(node)) for node in in_nodes]
-
 
 
 def add_grads(grad1, grad2):
@@ -392,18 +566,19 @@ def toposort(end_node):
 
     return reversed([n for n in _toposort(set(), end_node) if n.parents])
 
+
 def grad(func):
     def grad_func(*args):
-        _, backward = vjp(func, *args)
+        _, backward = vjp_simple(func, *args)
         return backward(1)[0]
 
     return grad_func
 
 
-
 def func(x):
     # return x*x
     return 3 * x * x * x + 2 * x * x + 2 * x
+
 
 if __name__ == "__main__":
     x = 3.14
@@ -421,12 +596,257 @@ if __name__ == "__main__":
     f = grad(grad(grad(func)))
     print(f"f'''(x) = {f(x)}")
 
-    print("-" * 100,"\n")
+    print("-" * 100, "\n")
 
-
-    print("Composition of Forward and Backward\n")
+    print("## Composition of Forward and Backward #\n")
     print(f"Forward on Backward {grad(deriv(func))(x)}")
     print(f"Backward on Forward {deriv(grad(func))(x)}")
 
 
 #### TODO: Pytree
+
+
+### Refinement of JVP
+def jvp_flat(func, primals, tangents):
+    with interpreter_context(JVPInterpreter) as iptr:
+        tracers_in = [JVPBox(iptr, x, t) for x, t in zip(primals, tangents)]
+
+        outs = func(*tracers_in)
+
+        tracers_out = [full_raise(iptr, out) for out in outs]
+
+        primals_out, tangents_out = [], []
+        for t in tracers_out:
+            primals_out.append(t.primal)
+            tangents_out.append(t.tangent)
+
+    return primals_out, tangents_out
+
+
+def jvp(func, primals, tangents):
+    # Flatten the primals and tangents into flat lists
+    primals_flat, in_tree = pytree.tree_flatten(primals)
+    tangents_flat, in_tree2 = pytree.tree_flatten(tangents)
+    assert in_tree == in_tree2, "Input trees for primals and tangents must match"
+
+    # Flatten the function f according to the input tree structure
+    func_flat, out_tree = pytree.flatten_fun(func, in_tree)
+
+    # forward pass
+    primals_out_flat, tangents_out_flat = jvp_flat(
+        func_flat, primals_flat, tangents_flat
+    )
+
+    assert len(out_tree) == 1, "out tree dict must have only one item"
+    out_tree: pytree.PyNode = out_tree["tree"]
+
+    primals_out = pytree.tree_unflatten(primals_out_flat, out_tree)
+    tangents_out = pytree.tree_unflatten(tangents_out_flat, out_tree)
+
+    return primals_out, tangents_out
+
+
+def deriv(func, argnums=0):
+    if isinstance(argnums, int):
+        argnums = [argnums]
+
+    def jvp_forward(*input_value):
+        # pass tangent 1 for argnums and 0 for others
+        tangents = tuple(
+            pytree.nested_ones_like(x) if idx in argnums else pytree.nested_zero_like(x)
+            for idx, x in enumerate(input_value)
+        )
+
+        _, gradient = jvp(func, input_value, tangents)
+
+        return gradient
+
+    return jvp_forward
+
+
+def sigmoid(x):
+    return 1 / (1 + exp(-x))
+
+
+def tanh(x):
+    return 2 * sigmoid(2 * x) - 1
+
+
+def func(x, y):
+    k = tanh(x) * 2.0 + y * y
+    z = -y + k
+    return {"hi": z, "there": [x, y]}
+
+
+if __name__ == "__main__":
+    print("------------------")
+    print("## pytree.py ##")
+    x = 3.14
+    y = 2.71
+    print(deriv(func, argnums=0)(x, y))
+
+
+#####
+### Refinement of VJP
+
+
+def add_grads(grad1, grad2):
+    if grad1 is None:
+        return grad2
+    return grad1 + grad2
+
+
+def toposort(end_nodes):
+    def _toposort(seen, node):
+        result = []
+        if node not in seen:
+            seen.add(node)
+            for p in node.parents:
+                result.extend(_toposort(seen, p))
+            result.append(node)
+        return result
+
+    outs = []
+    seen = set()
+    topo_sorted = []
+    for end_node in end_nodes:
+        topo_sorted.extend(_toposort(seen, end_node))
+
+    for node in topo_sorted:
+        if node.parents:
+            outs.append(node)
+    result = reversed(outs)
+    return list(result)
+
+
+def backward_pass(in_nodes, out_nodes, gradient):
+    node_map = {out_node: g for g, out_node in zip(gradient, out_nodes)}
+
+    topo_sorted = toposort(out_nodes)
+    for node in topo_sorted:
+        node_grad = node_map.pop(node)
+
+        input_grads = node.vjp(node_grad)
+
+        for input_grad, parent in zip(input_grads, node.parents):
+            node_map[parent] = add_grads(node_map.get(parent), input_grad)
+
+    return [node_map.get(node) for node in in_nodes]
+
+
+def add_grads(grad1, grad2):
+    if grad1 is None:
+        return grad2
+    return grad1 + grad2
+
+
+def vjp_flat(func, args):
+    with interpreter_context(VJPInterpreter) as iptr:
+        box_in = [VJPBox(iptr, x, get_leaf_nodes()) for x in args]
+        outs = func(*box_in)
+        box_out = [full_raise(iptr, o) for o in outs]
+        in_nodes = [box.node for box in box_in]
+        out_nodes = [box.node for box in box_out]
+        out_primals = [box.primal for box in box_out]
+
+        def func_vjp(grad):
+            return backward_pass(in_nodes, out_nodes, grad)
+
+    return out_primals, func_vjp
+
+
+def jvp(func, primals):
+    # Flatten the primals and tangents into flat lists
+    primals_flat, in_tree = pytree.tree_flatten(primals)
+
+    # Flatten the function f according to the input tree structure
+    func_flat, out_tree = pytree.flatten_fun(func, in_tree)
+
+    # forward pass
+    primals_out_flat, vjp_func = vjp_flat(
+        func_flat,
+        primals_flat,
+    )
+
+    assert len(out_tree) == 1, "out tree dict must have only one item"
+    out_tree: pytree.PyNode = out_tree["tree"]
+
+    primals_out = pytree.tree_unflatten(primals_out_flat, out_tree)
+
+    return primals_out, vjp_func
+
+
+def grad(func, argnums=0):
+    if isinstance(argnums, int):
+        argnums = [argnums]
+
+    def jvp_forward(*input_value):
+        result, vjp_func = jvp(func, input_value)
+
+        ones = pytree.nested_ones_like(result)
+        flat, _ = pytree.tree_flatten(ones)
+        grads = vjp_func(flat)
+        _, in_tree = pytree.tree_flatten(input_value)
+        grads = pytree.tree_unflatten(grads, in_tree)
+        grads = tuple(g for idx, g in enumerate(grads) if idx in argnums)
+        return grads[0] if len(argnums) == 1 else grads
+
+    return jvp_forward
+
+
+def value_and_grad(func, argnums=0):
+    if isinstance(argnums, int):
+        argnums = [argnums]
+
+    def jvp_forward(*input_value):
+        result, vjp_func = jvp(func, input_value)
+
+        # <hack>jax dont do this nasted ones funnny busniess
+        # it just requires output to be scalar
+        # but I you can pass one to all output nodes
+        # which is effectively like result = sum(result) I dont have redution op
+        # basically result.sum().backward() in pytorch
+        ones = pytree.nested_ones_like(result)
+        flat, _ = pytree.tree_flatten(ones)
+        # </hack>
+
+        # backward pass
+        grads = vjp_func(flat)
+
+        output, in_tree = pytree.tree_flatten(input_value)
+        grads = pytree.tree_unflatten(grads, in_tree)
+
+        grads = tuple(g for idx, g in enumerate(grads) if idx in argnums)
+
+        return result, grads[0] if len(argnums) == 1 else grads
+
+    return jvp_forward
+
+
+if __name__ == "__main__":
+    print("------------------")
+    PI = 3.14159265358979323846
+    x = 3.14
+
+    x = 3.14
+    y = 2.71
+
+    def func(x, y):
+        k = tanh(x) * 2.0 + y * y
+        z = -y + k
+        return z
+
+    print("MicroJAX: ", grad(func)(x, y))
+
+    try:
+        import jax
+        import jax.numpy as jnp
+
+        def func(x, y):
+            k = jnp.tanh(x) * 2.0 + y * y
+            z = -y + k
+            return z
+
+        print("JAX: ", jax.grad(func)(x, y))
+    except:
+        print("Jax not installed for comparison")
