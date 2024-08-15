@@ -11,10 +11,11 @@ it’s got forward mode and reverse mode automatic differentiation support!, and
 
 ## 🗂️ What's Inside?
 
-- **`microjax.py`**: The magic of auto-diff happens here.  🪄
+- **`microjax.py`**: The magic of auto-diff happens here. 
 - **`pytree.py`**:  🌳 Flatten and unflatten those nested data structures
 - **`nn.py`**: Build a simple neural net and watch it learn XOR! 🧠
 - **`tanh.py`**: Visualize the `tanh` function and its first four derivatives. 📈
+- **`picojax.py`**: A extra small version of microjax.py (only +,* ops)
 
 ## 🚀 Quick Start
 ```python
