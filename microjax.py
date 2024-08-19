@@ -870,8 +870,8 @@ def value_and_grad(func, argnums=0):
     if isinstance(argnums, int):
         argnums = [argnums]
 
-    def jvp_forward(*input_value):
-        result, vjp_func = jvp(func, input_value)
+    def vjp_forward(*input_value):
+        result, vjp_func = vjp(func, input_value)
 
         # <hack>jax dont do this nasted ones funnny busniess
         # it just requires output to be scalar
@@ -892,7 +892,7 @@ def value_and_grad(func, argnums=0):
 
         return result, grads[0] if len(argnums) == 1 else grads
 
-    return jvp_forward
+    return vjp_forward
 
 
 if __name__ == "__main__":
