@@ -1,16 +1,14 @@
 from __future__ import annotations
 
 import pytree
-import numbers
-import math
-
+import numpy as np
 
 from contextlib import contextmanager
 from typing import Any, Callable
 
-# works with numpy but breaks broadcasting
-# for non broadcasting import numpy and comment this
-np = math
+import numbers  # for type info
+
+microjax_types = (numbers.Number, np.number, np.ndarray)
 
 
 class OPS:
@@ -62,7 +60,7 @@ def silu(x):
     return x * sigmoid(x)
 
 
-# </basic interpreter>
+# <basic interpreter>
 class Interpreter:
     def __init__(self, level: int = 0, *args, **kwargs):
         self.level = level
@@ -97,16 +95,89 @@ def interpreter_context(interpreter_type: Interpreter):
 
 
 # =========================================================
+def ensure_box(x):
+    if isinstance(x, Box):
+        return x.aval
+    if isinstance(x, microjax_types):
+        return ContrateArray(np.asarray(x))
+    assert False, f"Unsupported type: {type(x)}"
 
 
 class Box:
     _interpreter: Interpreter
 
+    @property
     def aval(self):
         raise NotImplementedError
 
     def full_lower(self):
         return self
+
+    def __add__(self, other):
+        return self.aval.add(self, other)
+
+    def __radd__(self, other):
+        return self.aval.add(other, self)
+
+    def __mul__(self, other):
+        return self.aval.mul(self, other)
+
+    def __rmul__(self, other):
+        # print(self.aval)
+        return self.aval.mul(other, self)
+
+    def __neg__(self):
+        return self.aval.neg(self)
+
+    def __sub__(self, other):
+        return self.aval.add(self, neg(other))
+
+    def __rsub__(self, other):
+        return self.aval.add(other, neg(self))
+
+    def __truediv__(self, other):
+        return self.aval.mul(self, recip(other))
+
+    def __rtruediv__(self, other):
+        return self.aval.mul(other, recip(self))
+
+    def __iadd__(self, other):
+        return self.aval.add(self, other)
+
+    def __imul__(self, other):
+        return self.aval.mul(self, other)
+
+    def __isub__(self, other):
+        return self.aval.add(self, neg(other))
+
+    def __itruediv__(self, other):
+        return self.aval.mul(self, recip(other))
+
+
+# array wrapper 
+class ContrateArray:
+    def __init__(self, primal):
+        self._interpreter = STACK[0]
+        self.primal = primal
+        self.shape = primal.shape
+        self.dtype = primal.dtype
+
+    def ensure_box(self, x):
+        if isinstance(x, Box):
+            return x
+        if isinstance(x, microjax_types):
+            return ContrateArray(np.asarray(x))
+        assert False, f"Unsupported type: {type(x)}"
+
+    def full_lower(self):
+        return self
+
+    add = staticmethod(add)
+    mul = staticmethod(mul)
+    neg = staticmethod(neg)
+    recip = staticmethod(recip)
+    sin = staticmethod(sin)
+    cos = staticmethod(cos)
 
     def __add__(self, other):
         return add(self, other)
@@ -257,9 +328,9 @@ push_interpreter(EvalInterpreter())
 
 
 class JVPBox(Box):
-    def __init__(self, interpretor: Interpreter, primal, tangent) -> None:
+    def __init__(self, interpreter: Interpreter, primal, tangent) -> None:
         super().__init__()
-        self._interpreter = interpretor
+        self._interpreter = interpreter
         self.primal = primal
         self.tangent = tangent
 
@@ -268,7 +339,7 @@ class JVPBox(Box):
 
     @property
     def aval(self):
-        return self.primal.aval
+        return ensure_box(self.primal)
 
 
 class JVPRules:
@@ -373,7 +444,7 @@ if __name__ == "__main__":
 
     f = deriv(deriv(func))
     print(f"f''(x) = {f(x)}")
-
+    # exit()
     f = deriv(deriv(deriv(func)))
     print(f"f'''(x) = {f(x)}")
 
@@ -513,8 +584,9 @@ class VJPBox(Box):
     def full_lower(self):
         return self
 
+    @property
     def aval(self):
-        return self.primal.aval
+        return ensure_box(self.primal)
 
 
 def vjp_simple(func, *args):
@@ -755,7 +827,7 @@ def vjp_flat(func, args):
     return out_primals, func_vjp
 
 
-def jvp(func, primals):
+def vjp(func, primals):
     # Flatten the primals and tangents into flat lists
     primals_flat, in_tree = pytree.tree_flatten(primals)
 
@@ -780,8 +852,8 @@ def grad(func, argnums=0):
     if isinstance(argnums, int):
         argnums = [argnums]
 
-    def jvp_forward(*input_value):
-        result, vjp_func = jvp(func, input_value)
+    def vjp_func(*input_value):
+        result, vjp_func = vjp(func, input_value)
 
         ones = pytree.nested_ones_like(result)
         flat, _ = pytree.tree_flatten(ones)
@@ -791,7 +863,7 @@ def grad(func, argnums=0):
         grads = tuple(g for idx, g in enumerate(grads) if idx in argnums)
         return grads[0] if len(argnums) == 1 else grads
 
-    return jvp_forward
+    return vjp_func
 
 
 def value_and_grad(func, argnums=0):

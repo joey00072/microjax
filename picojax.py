@@ -126,12 +126,6 @@ def full_raise(interpreter: Interpreter | Any, out) -> Box | JVPBox:
     return out
 
 
-def full_lower(val):
-    if isinstance(val, Box):
-        return val.full_lower()
-    return val
-
-
 def bind(prim, *args, **params):
     interpreter = find_top_interpreter(args)
     # this will raise the boxes to the top level
@@ -234,10 +228,8 @@ def deriv(function):
 if __name__ == "__main__":
     print("## Forward Mode Automatic Differentiation (JVP) ##")
 
-
     def func(x):
         return 3 * x * x * x + 2 * x * x + 2 * x
-
 
     x = 3.14
 
@@ -252,7 +244,6 @@ if __name__ == "__main__":
 
     f = deriv(deriv(deriv(func)))
     print(f"f'''(x) = {f(x)}")
-
 
     print("-" * 100)
 
@@ -275,6 +266,7 @@ class Node:
 
 def get_leaf_nodes() -> Node:
     return Node(None, [])
+
 
 class VJPRules:
     def __init__(self):
@@ -326,7 +318,8 @@ class VJPInterpreter(Interpreter):
         for p, n in zip(primals_out, nodes_out):
             result.append(VJPBox(self, p, n))
         return result
-    
+
+
 class VJPBox(Box):
     def __init__(self, interpreter: VJPInterpreter, primal, node: Node) -> None:
         super().__init__()
@@ -343,6 +336,7 @@ class VJPBox(Box):
     def aval(self):
         return self.primal.aval
 
+
 def vjp(f, *args):
     with interpreter_context(VJPInterpreter) as iptr:
         box_in = [VJPBox(iptr, x, get_leaf_nodes()) for x in args]
@@ -356,6 +350,7 @@ def vjp(f, *args):
             return backward_pass(in_nodes, out_node, grad)
 
     return primal_out, func_vjp
+
 
 def backward_pass(in_nodes, out_node, gradient):
     node_map = {id(out_node): gradient}
@@ -371,7 +366,6 @@ def backward_pass(in_nodes, out_node, gradient):
             node_map[parent_id] = add_grads(node_map.get(parent_id), input_grad)
 
     return [node_map.get(id(node)) for node in in_nodes]
-
 
 
 def add_grads(grad1, grad2):
@@ -392,6 +386,7 @@ def toposort(end_node):
 
     return reversed([n for n in _toposort(set(), end_node) if n.parents])
 
+
 def grad(func):
     def grad_func(*args):
         _, backward = vjp(func, *args)
@@ -400,10 +395,10 @@ def grad(func):
     return grad_func
 
 
-
 def func(x):
     # return x*x
     return 3 * x * x * x + 2 * x * x + 2 * x
+
 
 if __name__ == "__main__":
     x = 3.14
@@ -421,8 +416,7 @@ if __name__ == "__main__":
     f = grad(grad(grad(func)))
     print(f"f'''(x) = {f(x)}")
 
-    print("-" * 100,"\n")
-
+    print("-" * 100, "\n")
 
     print("Composition of Forward and Backward\n")
     print(f"Forward on Backward {grad(deriv(func))(x)}")
