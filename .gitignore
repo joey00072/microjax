@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Virtual environment
+venv/
+env/
+.env
+
+# IDE-specific files
+.vscode/
+.idea/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Compiled Python files
+*.pyc
+
+# Logs
+*.log
+
+# Output files
+*.out
+
+# Temporary files
+*.tmp
+
+# Jupyter notebook output
+*.html
+*.pdf
+
+# Ignore all .gif files (if you want to exclude the generated GIF)
+*.gif
+
+# Add any other project-specific files or directories you want to ignore
+.ipynb_checkpoints
