@@ -9,6 +9,8 @@
 Microjax is function transformation engine like JAX or MLX,<br>
 it’s got forward mode and reverse mode automatic differentiation support!, and support for nested structures (PyTrees). 🌳
 
+Blog: https://huggingface.co/blog/joey00072/microjax
+
 ## 🗂️ What's Inside?
 
 - **`microjax.py`**: The magic of auto-diff happens here. 
